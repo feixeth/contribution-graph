@@ -110,10 +110,10 @@ async function syncGitHub() {
     return { inserted: 0, repos: 0 };
   }
 
-  const twoYearsAgo = new Date();
-  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-  const cutoff = twoYearsAgo.toISOString();
-  const since = getLastCommitDate('github') || cutoff;
+  // Pas de limite de date sur le premier scan : on remonte jusqu'au premier
+  // commit de chaque repo. Seuls les runs suivants (base non vide) passent
+  // un `since` pour ne recuperer que les nouveaux commits.
+  const since = getLastCommitDate('github') || undefined;
 
   console.log(`[github] Recuperation des repos pour ${GITHUB_USERNAME}...`);
   const repos = await fetchAllRepos();

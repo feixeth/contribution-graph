@@ -38,26 +38,42 @@ async function requestWithRetry(url, config, retries = 3) {
   throw new Error(`[gitlab] Echec apres ${retries} tentatives: ${url}`);
 }
 
+const PER_PAGE = 100;
+
 async function fetchAllProjects() {
   const projects = [];
   let page = 1;
   while (true) {
     const res = await requestWithRetry('/projects', {
-      params: { membership: true, per_page: 100, page },
+      params: { membership: true, per_page: PER_PAGE, page },
     });
     projects.push(...res.data);
+
     const nextPage = res.headers['x-next-page'];
-    if (!nextPage) break;
-    page = parseInt(nextPage, 10);
+    if (nextPage) {
+      page = parseInt(nextPage, 10);
+    } else if (res.data.length === PER_PAGE) {
+      // GitLab omet parfois les headers de pagination : on continue tant
+      // qu'une page pleine est renvoyee.
+      page += 1;
+    } else {
+      break;
+    }
   }
   return projects;
 }
 
-async function fetchCommitsForProject(projectId, authorEmail, since) {
+async function fetchCommitsForProject(projectId, since) {
+  // On ne filtre PAS par author_email cote serveur : combine a `all: true`,
+  // l'API de cette instance GitLab renvoie page 2 = une copie de la page 1
+  // (l'offset n'avance pas) puis saute une partie de l'historique a partir
+  // de la page 3, ce qui perd silencieusement des commits. On recupere donc
+  // tout l'historique (pagination fiable et verifiee) et on filtre par
+  // auteur cote client dans syncGitLab().
   const commits = [];
   let page = 1;
   while (true) {
-    const params = { author_email: authorEmail, per_page: 100, page, all: true };
+    const params = { per_page: PER_PAGE, page, all: true };
     if (since) params.since = since;
 
     let res;
@@ -69,9 +85,15 @@ async function fetchCommitsForProject(projectId, authorEmail, since) {
     }
 
     commits.push(...res.data);
+
     const nextPage = res.headers['x-next-page'];
-    if (!nextPage) break;
-    page = parseInt(nextPage, 10);
+    if (nextPage) {
+      page = parseInt(nextPage, 10);
+    } else if (res.data.length === PER_PAGE) {
+      page += 1;
+    } else {
+      break;
+    }
   }
   return commits;
 }
@@ -86,10 +108,10 @@ async function syncGitLab() {
     return { inserted: 0, projects: 0 };
   }
 
-  const twoYearsAgo = new Date();
-  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-  const cutoff = twoYearsAgo.toISOString();
-  const since = getLastCommitDate('gitlab') || cutoff;
+  // Pas de limite de date sur le premier scan : on remonte jusqu'au premier
+  // commit de chaque projet. Seuls les runs suivants (base non vide) passent
+  // un `since` pour ne recuperer que les nouveaux commits.
+  const since = getLastCommitDate('gitlab') || undefined;
 
   console.log('[gitlab] Recuperation des projets...');
   const projects = await fetchAllProjects();
@@ -99,21 +121,18 @@ async function syncGitLab() {
 
   for (const project of projects) {
     const pathWithNamespace = project.path_with_namespace;
-    const allCommits = [];
+    let allCommits = [];
 
-    for (const email of MY_EMAILS) {
-      try {
-        const commits = await fetchCommitsForProject(project.id, email, since);
-        allCommits.push(...commits);
-      } catch (err) {
-        console.error(`[gitlab] Erreur sur ${pathWithNamespace} (${email}): ${err.message}`);
-      }
+    try {
+      allCommits = await fetchCommitsForProject(project.id, since);
+    } catch (err) {
+      console.error(`[gitlab] Erreur sur ${pathWithNamespace}: ${err.message}`);
+      continue;
     }
 
-    const uniqueBySha = new Map();
-    for (const c of allCommits) uniqueBySha.set(c.id, c);
+    const filtered = allCommits.filter((c) => MY_EMAILS.includes((c.author_email || '').toLowerCase()));
 
-    const normalized = Array.from(uniqueBySha.values())
+    const normalized = filtered
       .map((c) => normalizeGitLabCommit(c, pathWithNamespace))
       .filter(Boolean);
 
