@@ -21,7 +21,7 @@ https://your-domain.tld/graph.png   → for clients that don't render SVG
 https://your-domain.tld/stats       → raw JSON stats
 ```
 
-The graph uses a purple gradient across 5 intensity levels, covering the last 52 weeks — commits from GitHub and GitLab are counted together per day.
+The graph uses a red gradient across 5 intensity levels, covering the last 52 weeks — commits from GitHub and GitLab are counted together per day.
 
 ## Use it yourself
 
