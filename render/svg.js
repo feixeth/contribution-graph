@@ -1,9 +1,9 @@
 const COLORS = {
   0: '#eaedf0',
-  1: '#c4b5fd',
-  2: '#a78bfa',
-  3: '#7c3aed',
-  4: '#4c1d95',
+  1: '#fecaca',
+  2: '#f87171',
+  3: '#dc2626',
+  4: '#7f1d1d',
 };
 
 const CELL_SIZE = 11;
